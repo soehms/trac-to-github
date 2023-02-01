@@ -1,0 +1,39 @@
+# This workflow synchronizels groups of labels that correspond
+# to items of selection list in Trac. It controls that in each
+# such case there is just one label of the list present.
+# Furthermore in the case of the state it checks the labels
+# to coincide with the corresponding review state.
+
+name: Synchronize selection list lables
+
+on:
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, labeled, unlabeled]
+  pull_request:
+    types: [opened, labeled, unlabeled]
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    steps:
+      # Download the Python script
+      - name: Download script
+        id: download
+        run: |
+          curl -L -O "https://raw.githubusercontent.com/soehms/trac-to-github/sync_labels/.github/sync_labels.py"
+
+      # Perform synchronization
+      - name: Call script
+        run: ./sync_labels.py $ACTION $ISSUE_URL $PR_URL "$LABEL" "$STATE" "$ISSUE_LABELS" "$PR_LABELS"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTION: ${{ github.event.action }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          STATE: ${{ github.event.review.state }}
+          LABEL: ${{ github.event.label.name }}
+          ISSUE_LABELS: ${{ toJson(github.event.issue.labels.*.name) }}
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+
