@@ -16,6 +16,7 @@ on:
   pull_request:
     types: [opened, labeled, unlabeled]
     branches: [sync_labels, master]
+  workflow_dispatch:
 
 jobs:
   synchronize:
