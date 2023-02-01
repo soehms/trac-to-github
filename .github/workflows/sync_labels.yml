@@ -9,11 +9,13 @@ name: Synchronize selection list lables
 on:
   pull_request_review:
     types: [submitted]
+    branches: [sync_labels, master]
   issues:
     types: [opened, labeled, unlabeled]
+    branches: [sync_labels, master]
   pull_request:
     types: [opened, labeled, unlabeled]
-  branches: [sync_labels, master]
+    branches: [sync_labels, master]
 
 jobs:
   synchronize:
