@@ -13,6 +13,7 @@ on:
     types: [opened, labeled, unlabeled]
   pull_request:
     types: [opened, labeled, unlabeled]
+  branches: [sync_labels, master]
 
 jobs:
   synchronize:
