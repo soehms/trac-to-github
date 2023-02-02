@@ -51,12 +51,10 @@ class State(SelectionList):
     """
     Enum for state lables.
     """
-    closed = 'closed'
     positive_review = 'positive review'
     needs_review = 'needs review'
     needs_work = 'needs work'
     needs_info = 'needs info'
-    new = 'new'
 
 class IssueType(SelectionList):
     """
@@ -64,7 +62,6 @@ class IssueType(SelectionList):
     """
     bug = 'bug'
     enhancement = 'enhancement'
-    task = 'task'
 
 def selection_list(label):
     """

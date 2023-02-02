@@ -22,8 +22,10 @@ jobs:
       - name: Download script
         id: download
         run: |
-          curl -L -O "https://raw.githubusercontent.com/soehms/trac-to-github/master/.github/sync_labels.py"
+          curl -L -O "https://raw.githubusercontent.com/"$REPO"/master/.github/sync_labels.py"
           chmod a+x sync_labels.py
+        env:
+          REPO: ${{ github.repository }}
 
       # Perform synchronization
       - name: Call script
