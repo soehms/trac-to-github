@@ -226,8 +226,8 @@ gh = GhLabelSynchronizer(url, labels)
 
 if action == 'opened':
     gh.add_default_label(Priority.major.value)
-    gh.add_default_label(State.new.value)
-    gh.add_default_label(IssueType.task.value)
+    gh.add_default_label(IssueType.enhancement.value)
+    gh.add_default_label(State.needs_review.value)
 
 if action == 'labeled':
     gh.on_label_add(label)
