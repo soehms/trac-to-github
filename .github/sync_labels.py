@@ -17,7 +17,8 @@ Python script to sync labels that are migrated from Trac selection lists.
 
 import os
 import sys
-import json
+from logging import info, warning, getLogger, INFO
+from json import loads
 from enum import Enum
 
 class SelectionList(Enum):
@@ -78,18 +79,58 @@ class GhLabelSynchronizer:
     Handler for access to GitHub issue via the `gh` in the bash command line
     of the GitHub runner.
     """
-    def __init__(self, url, labels):
+    def __init__(self, url):
         """
         Python constructor sets the issue / PR url and list of active labels.
         """
         self._url = url
-        self._labels = labels
+        self._labels = None
         number = os.path.basename(url)
         self._pr = True
         self._issue = 'pull request #%s' % number
         if url.rfind('issue') != -1:
-            self._issue = 'isuue #%s' % number
+            self._issue = 'issue #%s' % number
             self._pr = False
+        info('Create label handler for %s' % self._issue)
+
+
+    def is_pull_request(self):
+        """
+        Return if we are treating a pull request.
+        """
+        return self._pr
+
+    def view(self, key):
+        """
+        Return data obtained from `gh` command `view`.
+        """
+        issue = 'issue'
+        if self._pr:
+            issue = 'pr'
+        cmd = 'gh %s view %s --json %s' % (issue, self._url, key)
+        from subprocess import check_output
+        return loads(check_output(cmd, shell=True))
+
+    def get_labels(self):
+        """
+        Return the list of labels of the issue resp. PR.
+        """
+        if self._labels:
+            return self._labels
+        data = self.view('labels')['labels']
+        self._labels = [l['name'] for l in data]
+        info('List of labels for %s: %s' % (self._issue, self._labels))
+        return self._labels
+
+    def edit(self, arg, option):
+        """
+        Perform a system call to `gh` to edit an resp. PR.
+        """
+        issue = 'issue'
+        if self._pr:
+            issue = 'pr'
+        cmd = 'gh %s edit %s %s "%s"' % (issue, self._url, option, arg)
+        os.system(cmd)
 
     def active_partners(self, label):
         """
@@ -98,17 +139,7 @@ class GhLabelSynchronizer:
         """
         sel_list = selection_list(label)
         val = [i.value for i in sel_list]
-        return [l for l in self._labels if l in val and not l == label]
-
-    def edit(self, arg, option):
-        """
-        Perform a system call to `gh` to edit an issue or PR.
-        """
-        issue = 'issue'
-        if self._pr:
-            issue = 'pr'
-        cmd = 'gh %s edit %s %s "%s"' % (issue, self._url, option, arg)
-        os.system(cmd)
+        return [l for l in self.get_labels() if l in val and not l == label]
 
     def add_comment(self, text):
         """
@@ -119,15 +150,15 @@ class GhLabelSynchronizer:
             issue = 'pr'
         cmd = 'gh %s comment %s -b "%s"' % (issue, self._url, text)
         os.system(cmd)
-        print('Comment %s added to %s' % (text, self._issue))
+        info('Add comment to %s: %s' % (self._issue, text))
 
     def add_label(self, label):
         """
         Add the given label to the issue or PR.
         """
-        if not label in self._labels:
+        if not label in self.get_labels():
             self.edit(label, '--add-label')
-            print('Label %s added to %s' % (label, self._issue))
+            info('Add label to %s: %s' % (self._issue, label))
 
     def add_default_label(self, label):
         """
@@ -144,6 +175,19 @@ class GhLabelSynchronizer:
         sel_list = selection_list(label)
         if not sel_list:
             return
+
+        if label not in self.get_labels():
+            # this is possible if two labels of the same selection list
+            # have been added in one step (via multiple selection in the
+            # pull down menue). In this case `label` has been removed
+            # on the `on_label_add` of the first of the two labels
+            partn = self.active_partners(label)
+            if partn:
+                self.add_comment('Label %s can not be added due to %s!' % (label, partn[0]))
+            else:
+                warning('Label %s of %s not found!' % (label, self._issue))
+            return
+
         item = sel_list(label)
         if sel_list is State and self._pr:
             if item not in [State.needs_info, State.needs_review]:
@@ -166,9 +210,9 @@ class GhLabelSynchronizer:
         """
         Remove the given label from the issue or PR of the handler.
         """
-        if label in self._labels:
+        if label in self.get_labels():
             self.edit(label, '--remove-label')
-            print('Label %s removed from %s' % (label, self._issue))
+            info('Remove label from %s: %s' % (self._issue, label))
 
     def on_label_remove(self, label):
         """
@@ -180,9 +224,22 @@ class GhLabelSynchronizer:
         sel_list = selection_list(label)
         if not sel_list:
             return
+
+        if label in self.get_labels():
+            # this is possible if two labels of the same selection list
+            # have been removed in one step (via multiple selection in the
+            # pull down menue). In this case `label` has been added
+            # on the `on_label_removed` of the first of the two labels
+            partn = self.active_partners(label)
+            if not partn:
+                self.add_comment('Label %s can not be removed (last one of list)!' % label)
+            else:
+                self.on_label_add(partn[0])
+            return
+
         item = sel_list(label)
         if sel_list is State and self._pr:
-            if item in [State.positive_review, State.needs_work, State.close]:
+            if item in [State.positive_review, State.needs_work]:
                 self.add_comment('Label can not be removed. Please use the corresponding functionality of GitHub')
                 self.select_label(label)
                 return
@@ -201,33 +258,28 @@ class GhLabelSynchronizer:
 # Main
 ###############################################################################
 cmdline_args = sys.argv[1:]
-print('cmdline_args', len(cmdline_args), cmdline_args)
-if len(cmdline_args) < 6:
-    print('Need 6 arguments: action, url, label, state, issue_labels, pr_labels' )
+
+getLogger().setLevel(INFO)
+info('cmdline_args (%s) %s' % (len(cmdline_args), cmdline_args))
+
+if len(cmdline_args) < 4:
+    print('Need 4 arguments: action, url, label, rev_state' )
     exit
 else:
-    action, url, label, state, issue_labels, pr_labels = cmdline_args
+    action, url, label, rev_state = cmdline_args
 
-labels = json.loads(issue_labels)
-if not labels:
-    labels = json.loads(pr_labels)
+info('action: %s' % action)
+info('url: %s' % url)
+info('label: %s' % label)
+info('rev_state: %s' % rev_state)
 
-base_url = url
-for i in range(3): base_url = os.path.dirname(base_url)
-print("action", action)
-print("url", url)
-print("label", label)
-print("state", state)
-print("labels", labels)
-print("base_url", base_url)
-
-gh = GhLabelSynchronizer(url, labels)
-
+gh = GhLabelSynchronizer(url)
 
 if action == 'opened':
     gh.add_default_label(Priority.major.value)
     gh.add_default_label(IssueType.enhancement.value)
-    gh.add_default_label(State.needs_review.value)
+    if gh.is_pull_request():
+        gh.add_default_label(State.needs_veview.value)
 
 if action == 'labeled':
     gh.on_label_add(label)
@@ -236,13 +288,13 @@ if action == 'unlabeled':
     gh.on_label_remove(label)
 
 if action == 'submitted':
-    if state == 'approved':
+    if rev_state == 'approved':
         gh.select_label(State.positive_review.value)
 
-    if state == 'changes_requested':
+    if rev_state == 'changes_requested':
         gh.select_label(State.needs_work.value)
 
-    if state == 'commented':
+    if rev_state == 'commented':
         # just for testing
         gh.select_label(State.needs_work.value)
 
