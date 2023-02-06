@@ -1593,9 +1593,9 @@ def map_tickettype(tickettype):
     if not tickettype:
         return None
     if tickettype == 'defect':
-        return 'bug'
+        return 't: bug'
     if tickettype == 'enhancement':
-        return 'enhancement'
+        return 't: enhancement'
     # if tickettype == 'clarification':
     #     return 'question'
     # if tickettype == 'task':
@@ -1611,7 +1611,7 @@ def map_resolution(resolution):
         return None
     if not resolution:
         return None
-    return resolution
+    return 'r: ' + resolution
 
 component_frequency = defaultdict(lambda: 0)
 def map_component(component):
@@ -1650,7 +1650,7 @@ def map_status(status):
     "Return a pair: (status, label)"
     status = status.lower()
     if status in ['needs_review', 'needs_work', 'needs_info', 'positive_review']:
-        return 'open', status.replace('_', ' ')
+        return 'open', 's: ' + status.replace('_', ' ')
     elif status in ['', 'new', 'assigned', 'analyzed', 'reopened', 'open', 'needs_info_new']:
         return 'open', None
     elif status in ['closed'] :
@@ -1782,6 +1782,35 @@ def gh_attachment_url(src_ticket_id, filename):
     a, local_filename, note = gh_create_attachment(dest, None, filename, src_ticket_id, None)
     return a.url
 
+mime_type_allowed_extensions = {
+    "application/pdf": [".pdf"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    "application/vnd.oasis.opendocument.text": [".odt", ".fodt"],
+    "application/vnd.oasis.opendocument.spreadsheet": [".ods", ".fods"],
+    "application/vnd.oasis.opendocument.presentation": [".odp", ".fodp"],
+    "application/vnd.oasis.opendocument.graphics": [".odg", ".fodg"],
+    "application/vnd.oasis.opendocument.formula": [".odf"],
+    "application/vnd.ms-excel": [".csv", ".xls"],
+    "application/zip": [".zip"],
+    "application/x-zip-compressed": [".zip"],
+    "application/gzip": [".gz", ".tgz"],
+    "application/x-gzip": [".gz", ".tgz"],
+    "text/plain": [".csv", ".txt", ".patch"],
+    "text/x-log": [".log"],
+    "text/csv": [".csv"],
+    "text/comma-separated-values": [".csv"],
+    "application/csv": [".csv"],
+    "application/excel": [".csv"],
+    "application/vnd.msexcel": [".csv"],
+    "text/markdown": [".md"],
+    # as attachments
+    'image/gif': [".gif"],
+    'image/jpeg': [".jpeg", ".jpg"],
+    'image/png': [".png"],
+    }
+
 def gh_create_attachment(dest, issue, filename, src_ticket_id, attachment=None, comment=None):
     note = None
     if attachment_export:
@@ -1796,25 +1825,31 @@ def gh_create_attachment(dest, issue, filename, src_ticket_id, attachment=None, 
                     pass
                 case mimetype:
                     pass
+
             if filename.endswith('.log'):
                 # Python thinks it's text/plain.
                 mimetype = 'text/x-log'
-            elif filename.endswith('.bz2'):
-                mimetype = "application/octet-stream"
             elif filename.endswith('.gz'):
                 # Python thinks that .tar.gz is application/x-tar
                 mimetype = 'application/gzip'
+
             logging.info(f'Attachment {filename=} {mimetype=}')
+
+            allowed_extensions = mime_type_allowed_extensions.get(mimetype, [])
+            if not any(filename.endswith(ext) for ext in allowed_extensions):
+                mimetype = "application/octet-stream"  # which is not an allowed mime type, so will be gzipped.
+
             # supported types from bbs-exporter-1.5.5/lib/bbs_exporter/attachment_exporter/content_type.rb:
-            if mimetype in []: # ['image/gif', 'image/jpeg', 'image/png']:
-                # attachment URLs are rewritten to "/storage/user" paths, links broken.
-                # so we just do everything via repository_file, not attachement
-                dirname = 'attachments'
-                create = issue.create_attachment
+            if mimetype in ['image/gif', 'image/jpeg', 'image/png']:
+                # on GHE attachment URLs are rewritten to "/storage/user" paths, links broken.
+                # so we just did everything via repository_file, not attachment
+                dirname = 'files'
+                if issue:
+                    create = issue.create_attachment
             else:
                 # Cannot make it an "attachment"(?)
-                if mimetype not in ['text/plain', 'text/x-log', 'application/gzip', 'application/zip',
-                                    'image/gif', 'image/jpeg', 'image/png']:
+                if mimetype not in ['text/plain', 'text/x-log', 'application/gzip', 'application/zip']:
+                    # Here we are stricter than what mime_type_allowed_extensions allows.
                     # Replace by a gzipped file
                     if attachment:
                         attachment['attachment'] = gzip.compress(attachment['attachment'])
@@ -1919,11 +1954,11 @@ def gh_comment_issue(dest, issue, comment, src_ticket_id, comment_id=None, minim
 priority_labels = set(map_priority(priority)
                       for priority in ['trivial', 'minor', 'major', 'critical', 'blocker'])
 def normalize_labels(dest, labels):
-    if 'invalid' in labels:
-        if any(x in labels for x in ['duplicate', 'invalid', 'wontfix', 'worksforme']):
+    if 'r: invalid' in labels:
+        if any(x in labels for x in ['r: duplicate', 'r: invalid', 'r: wontfix', 'r: worksforme']):
             # Remove in favor of the more specific label.
-            labels.remove('invalid')
-    if any(x in labels for x in ['duplicate', 'invalid', 'wontfix', 'worksforme']):
+            labels.remove('r: invalid')
+    if any(x in labels for x in ['r: duplicate', 'r: invalid', 'r: wontfix', 'r: worksforme']):
         labels = sorted(set(labels).difference(priority_labels))
     return labels
 
@@ -2867,6 +2902,7 @@ if __name__ == "__main__":
                          }
                         for label in gh_labels.values()]}
             )
+            dest._requester.flush()
             with open("minimized_issue_comments.json", "w") as f:
                 json.dump(minimized_issue_comments, f, indent=4)
 
