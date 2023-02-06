@@ -1,4 +1,4 @@
-# This workflow synchronizels groups of labels that correspond
+# This workflow synchronizes groups of labels that correspond
 # to items of selection list in Trac. It controls that in each
 # such case there is just one label of the list present.
 # Furthermore in the case of the state it checks the labels
@@ -10,9 +10,9 @@ on:
   pull_request_review:
     types: [submitted]
   issues:
-    types: [opened, labeled, unlabeled]
+    types: [opened, reopened, closed, labeled, unlabeled]
   pull_request:
-    types: [opened, labeled, unlabeled]
+    types: [opened, reopened, closed, labeled, unlabeled]
 
 jobs:
   synchronize:

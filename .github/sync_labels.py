@@ -52,17 +52,21 @@ class State(SelectionList):
     """
     Enum for state lables.
     """
-    positive_review = 'positive review'
-    needs_review = 'needs review'
-    needs_work = 'needs work'
-    needs_info = 'needs info'
+    positive_review = 's: positive review'
+    needs_review = 's: needs review'
+    needs_work = 's: needs work'
+    needs_info = 's: needs info'
 
 class IssueType(SelectionList):
     """
     Enum for type lables.
     """
-    bug = 'bug'
-    enhancement = 'enhancement'
+    bug = 't: bug'
+    enhancement = 't: enhancement'
+    performance = 't: performance'
+    refactoring = 't: refactoring'
+    feature = 't: feature'
+    tests = 't: tests'
 
 def selection_list(label):
     """
@@ -85,6 +89,8 @@ class GhLabelSynchronizer:
         """
         self._url = url
         self._labels = None
+        self._draft = None
+        self._open = None
         number = os.path.basename(url)
         self._pr = True
         self._issue = 'pull request #%s' % number
@@ -111,11 +117,35 @@ class GhLabelSynchronizer:
         from subprocess import check_output
         return loads(check_output(cmd, shell=True))
 
+    def is_open(self):
+        """
+        Return if the issue res. PR is open.
+        """
+        if self._open is not None:
+            return self._open
+        if self.view('state')['state'] == 'OPEN':
+            self._open = True
+        else:
+            self._open = False
+        return self._open
+
+    def is_draft(self):
+        """
+        Return if the PR is a draft.
+        """
+        if self._draft is not None:
+            return self._draft
+        if self.is_pull_request():
+            self._draft = self.view('isDraft')['isDraft']
+        else:
+            self._draft = False
+        return self._draft
+
     def get_labels(self):
         """
         Return the list of labels of the issue resp. PR.
         """
-        if self._labels:
+        if self._labels is not None:
             return self._labels
         data = self.view('labels')['labels']
         self._labels = [l['name'] for l in data]
@@ -183,15 +213,21 @@ class GhLabelSynchronizer:
             # on the `on_label_add` of the first of the two labels
             partn = self.active_partners(label)
             if partn:
-                self.add_comment('Label %s can not be added due to %s!' % (label, partn[0]))
+                self.add_comment('Label *%s* can not be added due to *%s*!' % (label, partn[0]))
             else:
                 warning('Label %s of %s not found!' % (label, self._issue))
             return
 
         item = sel_list(label)
         if sel_list is State and self._pr:
-            if item not in [State.needs_info, State.needs_review]:
-                self.add_comment('Label can not be added. Please use the corresponding functionality of GitHub')
+            if not self.is_pull_request():
+                if item != State.needs_info:
+                    self.add_comment('Label *%s* can not be added to an issue. Please use it on the corresponding PR' % label)
+                    self.remove_label(label)
+                    return
+
+            if item in [State.positive_review, State.needs_work]:
+                self.add_comment('Label *%s* can not be added. Please use the corresponding functionality of GitHub' % label)
                 self.remove_label(label)
                 return
 
@@ -229,10 +265,10 @@ class GhLabelSynchronizer:
             # this is possible if two labels of the same selection list
             # have been removed in one step (via multiple selection in the
             # pull down menue). In this case `label` has been added
-            # on the `on_label_removed` of the first of the two labels
+            # on the `on_label_remove` of the first of the two labels.
             partn = self.active_partners(label)
             if not partn:
-                self.add_comment('Label %s can not be removed (last one of list)!' % label)
+                self.add_comment('Label *%s* can not be removed (last one of list)!' % label)
             else:
                 self.on_label_add(partn[0])
             return
@@ -240,7 +276,7 @@ class GhLabelSynchronizer:
         item = sel_list(label)
         if sel_list is State and self._pr:
             if item in [State.positive_review, State.needs_work]:
-                self.add_comment('Label can not be removed. Please use the corresponding functionality of GitHub')
+                self.add_comment('Label *%s* can not be removed. Please use the corresponding functionality of GitHub' % label)
                 self.select_label(label)
                 return
 
@@ -250,7 +286,7 @@ class GhLabelSynchronizer:
                 # add the next weaker label
                 self.select_label(succ.value)
             else:
-                self.add_comment('Label can not be removed since there is no replacement')
+                self.add_comment('Label *%s* can not be removed since there is no replacement' % label)
                 self.select_label(label)
             
 
@@ -279,7 +315,17 @@ if action == 'opened':
     gh.add_default_label(Priority.major.value)
     gh.add_default_label(IssueType.enhancement.value)
     if gh.is_pull_request():
-        gh.add_default_label(State.needs_veview.value)
+        if not gh.is_draft():
+            gh.add_default_label(State.needs_review.value)
+
+if action == 'reopened':
+    if gh.is_pull_request():
+        if not gh.is_draft():
+            gh.add_default_label(State.needs_review.value)
+
+if action == 'closed':
+    for lab in State:
+        gh.remove_label(lab.value)
 
 if action == 'labeled':
     gh.on_label_add(label)
