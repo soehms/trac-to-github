@@ -12,7 +12,9 @@ on:
   issues:
     types: [opened, reopened, closed, labeled, unlabeled]
   pull_request:
-    types: [opened, reopened, closed, labeled, unlabeled]
+    types: [opened, reopened, closed, ready_for_review, converted_to_draft, labeled, unlabeled]
+  pull_request_target:
+    types: [opened, reopened, closed, ready_for_review, converted_to_draft, labeled, unlabeled]
 
 jobs:
   synchronize:
@@ -29,11 +31,12 @@ jobs:
 
       # Perform synchronization
       - name: Call script
-        run: ./sync_labels.py $ACTION $ISSUE_URL $PR_URL "$LABEL" "$REV_STATE"
+        run: ./sync_labels.py $ACTION $ISSUE_URL $PR_URL $ACTOR "$LABEL" "$REV_STATE"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTION: ${{ github.event.action }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          ACTOR: ${{ github.actor }}
           LABEL: ${{ github.event.label.name }}
           REV_STATE: ${{ github.event.review.state }}
